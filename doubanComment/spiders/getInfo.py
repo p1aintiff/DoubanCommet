@@ -62,9 +62,6 @@ class GetinfoSpider(scrapy.Spider):
         # todo success
         jsonld_data = json.loads(script_content)
 
-        # 打印提取的字典数据
-        # print()
-
         print("url", response.url)
         amount = 3
         past_url = f"comments?percent_type=&start=0&limit={amount}&status=P&sort=new_score&comments_only=1"

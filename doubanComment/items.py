@@ -9,9 +9,15 @@ import scrapy
 class DoubancommentItem(scrapy.Item):
     # define the fields for your item here like:
     # name = scrapy.Field()
-    pass
+    typeId = scrapy.Field()
+    apiJson = scrapy.Field()
 
+    movieInfo = scrapy.Field()
 
-class TypeUrl:
-    name = scrapy.Field()
-    typeID = scrapy.Field()
+    comment =  scrapy.Field()
+    all= scrapy.Field()
+
+    subject_url = scrapy.Field()
+
+    type = scrapy.Field()
+    typeNum = scrapy.Field()
