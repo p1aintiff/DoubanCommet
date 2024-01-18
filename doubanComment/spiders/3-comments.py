@@ -2,20 +2,14 @@ import scrapy
 from bs4 import BeautifulSoup
 import json
 import re
-from doubanComment.items import DoubancommentItem
+from doubanComment.items import DoubanCommentItem
 import html
 import pymongo
 import time
 
-
 # 每次运行考虑的前n个
 START = 0
-URLS = 500
-
-# # 前n个中最多爬取的数量
-# ONETASK = 1
-# # 每个电影的 每次评论请求数量
-# COMMENT_STEP = 1000
+COUNTS = 10
 
 
 class CommentsSpider(scrapy.Spider):
@@ -24,13 +18,12 @@ class CommentsSpider(scrapy.Spider):
 
     custom_settings = {
         'ITEM_PIPELINES': {
-            'doubanComment.pipelines.MovieInfoPipeLine': 400,
             'doubanComment.pipelines.Comment': 401,
             'doubanComment.pipelines.TaskManage': 403,
         },
-        "DOWNLOADER_MIDDLEWARES":{
-            'doubanComment.middlewares.MongoMiddleware': 543,  # 调整优先级
-            'doubanComment.middlewares.proxy': 544,  # 调整优先级
+        "DOWNLOADER_MIDDLEWARES": {
+            'doubanComment.middlewares.MongoMiddleware': 543,  # 检查请求url是否在数据库中
+            'doubanComment.middlewares.proxy': 544,  # 设置代理
         },
     }
 
@@ -52,76 +45,51 @@ class CommentsSpider(scrapy.Spider):
             ]
         }
 
-
-
-
-        # 执行查询
+        # 执行查询，选取有评论为0的电影
         cursor = collection.find(query)
-        # 提取所有文档的 URL 列表
+
+        # 所有任务的url列表
         task_list = []
-        task = {
-            "movie":"",
-            "none": "",
-            "h":"",
-            "m":"",
-            "l":""
-        }
-
+        # 遍历每一个电影，分类添加任务
         for doc in cursor:
-            task = {
-            }
-            url=doc.get("url")
-            if doc.get("none")==0:
-                task["none"]=url+"comments?percent_type=&start=0&limit=600&status=P&sort=new_score&comments_only=1"
-            if doc.get("h")==0:
-                task["h"]=url+"comments?percent_type=h&start=0&limit=600&status=P&sort=new_score&comments_only=1"
-            if doc.get("m")==0:
-                task["m"]=url+"comments?percent_type=m&start=0&limit=600&status=P&sort=new_score&comments_only=1"
-            if doc.get("l")==0:
-                task["l"]=url+"comments?percent_type=l&start=0&limit=600&status=P&sort=new_score&comments_only=1"
-            
+            # 获取的评论数小于总评论数
+            if doc.get("save") < doc.get("all"):
+                task = {
+                }
+                url = doc.get("url")
+                if doc.get("none") == 0:
+                    task["none"] = url + "comments?percent_type=&start=0&limit=600&status=P&sort=new_score&comments_only=1"
+                if doc.get("h") == 0:
+                    task["h"] = url + "comments?percent_type=h&start=0&limit=600&status=P&sort=new_score&comments_only=1"
+                if doc.get("m") == 0:
+                    task["m"] = url + "comments?percent_type=m&start=0&limit=600&status=P&sort=new_score&comments_only=1"
+                if doc.get("l") == 0:
+                    task["l"] = url + "comments?percent_type=l&start=0&limit=600&status=P&sort=new_score&comments_only=1"
 
-            task_list.append(task)
-            
-            
+                task_list.append(task)
 
+        print("获取评论任务数量", str(len(task_list)))
 
-        print("get mongo task",len(task_list))
-        
-
-
-
-        tasks = task_list[START:URLS]
-        print(len(tasks)," is in task!")
-        for ontask in tasks:
-                for key,value in ontask.items():
-                    yield scrapy.Request(url=value, callback=self.parse_commets, headers=headers, meta={"type":key})
-    
-                
-  
-
+        # 提取一定范围的任务
+        tasks = task_list[START:START+COUNTS]
+        print(len(tasks), " 被执行")
+        for one_task in tasks:
+            for key, value in one_task.items():
+                yield scrapy.Request(url=value, callback=self.parse_commets, headers=headers, meta={"type": key})
 
     def parse_commets(self, response):
         """
         解析评论
         """
 
-        print('this comment url', response.url)
-        
-        item=DoubancommentItem()
-        type = response.meta['type']
-        if type:
-            item['type'] = type
-        print('tyhe type:   ', type)
-        time.sleep(1)
-        all = response.meta.get("all")
-        if(all):
-            item['all']=all
+        print('本次请求url：', response.url)
 
-        commet = json.loads(response.text)
+        item = DoubanCommentItem()
+
+        comment = json.loads(response.text)
 
         # 解析html文本
-        soup = BeautifulSoup(commet["html"], 'html.parser')
+        soup = BeautifulSoup(comment["html"], 'html.parser')
 
         # div.avatar>a title(name) href(person url)
         #  span.comment-vote > span (text, 有用数)
@@ -145,8 +113,8 @@ class CommentsSpider(scrapy.Spider):
             # 提取评论内容
             comment_content = comment_item.select_one('.short').text.strip()
 
-
             # 提取评分信息
+            rating = None
             rating_span = soup.find('span', class_=re.compile(r'allstar\d+ rating'))
             if rating_span:
                 rating = int(re.search(r'\d+', rating_span['class'][0]).group())
@@ -160,25 +128,24 @@ class CommentsSpider(scrapy.Spider):
                 if subject_id_match:
                     subject_id = subject_id_match.group(1)
                     comment_id = subject_id_match.group(2)
-            
-            movieUrl = "https://movie.douban.com/subject/"+subject_id+"/"
-            commentUrl = movieUrl+"?comment_id="+comment_id
 
+            movieUrl = "https://movie.douban.com/subject/" + subject_id + "/"
+            commentUrl = movieUrl + "?comment_id=" + comment_id
 
             commentInfo = {
-                "person": name,
+                "name": name,
                 "person_url": person_url,
-                "useful_count":useful_count,
-                "time":comment_time,
-                "content":comment_content,
-                "rating":rating,
-                "movie_url":movieUrl,
-                "url":commentUrl,
+                "useful_count": useful_count,
+                "time": comment_time,
+                "content": comment_content,
+                "rating": rating,
+                "movie_url": movieUrl,
+                "url": commentUrl,
             }
 
             item['subject_url'] = movieUrl
             item['comment'] = commentInfo
+            type = response.meta['type']
+            if type:
+                item['type'] = type
             yield item
-
-        print("css class count", len(comment_items))
-        # print('url: ',response.meta['url'])

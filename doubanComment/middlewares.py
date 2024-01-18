@@ -107,41 +107,28 @@ class DoubancommentDownloaderMiddleware:
         spider.logger.info("Spider opened: %s" % spider.name)
 
 
-
-
-
 class MongoMiddleware:
+    """
+    检查请求的 URL 是否在 MongoDB 中, 如果不是，说明该 URL 没有被重定向到其他位置，那么就阻止请求
+    """
+
     def __init__(self):
+        self.collection = None
         self.url = "mongodb://localhost:27017"
         self.client = None
-        print("dowloadMidel init")
-
 
     def process_request(self, request, spider):
-        sleep(0.2)
         # 检查请求的 URL 是否在 MongoDB 中
         print("检验", request.url[:42])
 
-        theT =self.url_in_mongo(request.url[:42])
+        theT = self.url_in_mongo(request.url[:42])
         if theT:
             return None  # 如果存在，继续请求
         else:
             # 如果不存在，阻止请求
             raise IgnoreRequest(f"URL {request.url} not found in MongoDB")
-            return 
 
     def process_response(self, request, response, spider):
-        # 检查响应的 URL 是否在 MongoDB 中
-        # theT = self.url_in_mongo(request.url)
-        # if theT:
-        #     save,all = theT
-        #     save = save+1
-        #     if save==all:
-        #         # 删除任务
-        #         self.collection.delete_one("url",response.url)
-        #     else:
-        #         # 更新任务
-        #         self.collection.update({"url":response.url},{"url":response.url,"save":save,"all":all})
         return response
 
     def url_in_mongo(self, url):
@@ -155,7 +142,7 @@ class MongoMiddleware:
         # 查询 URL 是否存在
         result = self.collection.find_one({'url': url})
         if result:
-            return (result['save'],result['all'])
+            return result['save'], result['all']
         else:
             return None
 
@@ -163,55 +150,27 @@ class MongoMiddleware:
         # 关闭 MongoDB 连接
         if self.client:
             self.client.close()
-        
-        print("close mid")
 
+        print("close mid")
 
 
 class proxy:
 
     def __init__(self):
-            self.url = "mongodb://localhost:27017"
-            self.client = None
-    
+        self.url = "mongodb://localhost:27017"
+        self.client = None
+
     def process_request(self, request, spider):
         proxy = get_proxy().get("proxy")
-        # proxy = get_dok_proxy()
         print(proxy)
-        request.meta['proxy'] = "http://"+proxy
+        request.meta['proxy'] = "http://" + proxy
 
         return None
 
 
-def get_dok_proxy():
-    return requests.get("https://api2.docip.net/v1/get_proxy_status?api_key=shGomj9vDfaTyCD6WYtRUF4M655f61db&tunnel=1").json()[0] 
-
 def get_proxy():
     return requests.get("http://127.0.0.1:5010/get/").json()
 
-def delete_proxy(proxy):
-    requests.get("http://127.0.0.1:5010/delete/?proxy={}".format(proxy))
-
-# your spider code
-
-def getHtml():
-    # ....
-    retry_count = 5
-    proxy = get_proxy().get("proxy")
-    while retry_count > 0:
-        try:
-            html = requests.get('http://www.example.com', proxies={"http": "http://{}".format(proxy)})
-            # 使用代理访问
-            return html
-        except Exception:
-            retry_count -= 1
-    # 删除代理池中代理
-    delete_proxy(proxy)
-    return None
 
 if __name__ == '__main__':
-    # m = MongoMiddleware()
-    # m.url_in_mongo("https://movie.douban.com/subject/10432911/")
-    proxy = get_dok_proxy()
-    print(proxy[0])
-
+    print(get_proxy())
